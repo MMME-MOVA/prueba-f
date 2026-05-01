@@ -119,3 +119,4 @@ window.inspVerHistorial = async function() {
     }).join('')}</div>`;
   } catch(err) { document.getElementById('insp-hist-lista').innerHTML = `<p class="u-color-red">Error: ${err.message}</p>`; }
 };
+window.inspGenericMenu=inspGenericMenu;
