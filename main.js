@@ -1,13 +1,13 @@
 // ═══════════════════════════════════════════════════════════
-//  MOVA v2 — MAIN MODULE (ES6)
-//  Carga módulos con import() → cada uno scope aislado
+//  MOVA v2.0 — Entry Point
+//  Inicializa Firebase, carga módulos, motor PDF, helpers
 // ═══════════════════════════════════════════════════════════
 
+// ── 1. Firebase Imports ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, onSnapshot, serverTimestamp, Timestamp, writeBatch } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, startAfter, onSnapshot, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-storage.js";
-import emailjs from "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDlO-XhUuitM6QN6cpam3SkeqpGcktFbWw",
@@ -23,11 +23,13 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// Exponer a window para módulos locales
+// Exponer globalmente
 window.app = app;
 window.auth = auth;
 window.db = db;
 window.storage = storage;
+
+// Exponer funciones de Firebase
 window.doc = doc;
 window.getDoc = getDoc;
 window.getDocs = getDocs;
@@ -40,10 +42,10 @@ window.query = query;
 window.where = where;
 window.orderBy = orderBy;
 window.limit = limit;
+window.startAfter = startAfter;
 window.onSnapshot = onSnapshot;
-window.serverTimestamp = serverTimestamp;
-window.Timestamp = Timestamp;
 window.writeBatch = writeBatch;
+window.serverTimestamp = serverTimestamp;
 window.ref = ref;
 window.uploadBytes = uploadBytes;
 window.getDownloadURL = getDownloadURL;
@@ -63,7 +65,7 @@ if (typeof emailjs !== 'undefined') {
   emailjs.init(PUBLIC_KEY);
 }
 
-// showToast global
+// showToast global (usado por todos los módulos)
 function showToast(type, msg) {
   const c = document.getElementById('toastContainer');
   if (!c) return;
@@ -75,7 +77,35 @@ function showToast(type, msg) {
 }
 window.showToast = showToast;
 
-// QR URL parser
+// ═══════════════════════════════════════════════════════════
+//  MOBILE MENU — Registro inmediato (no depende de imports)
+// ═══════════════════════════════════════════════════════════
+(function(){
+  function initMobileMenu(){
+    var menuToggle=document.getElementById('menuToggle');
+    var sidebar=document.getElementById('sidebar');
+    var overlay=document.getElementById('sidebarOverlay');
+    if(menuToggle&&sidebar){
+      menuToggle.addEventListener('click',function(){
+        sidebar.classList.toggle('mobile-open');
+        if(overlay)overlay.classList.toggle('show');
+      });
+    }
+    if(overlay&&sidebar){
+      overlay.addEventListener('click',function(){
+        sidebar.classList.remove('mobile-open');
+        overlay.classList.remove('show');
+      });
+    }
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',initMobileMenu);
+  }else{
+    initMobileMenu();
+  }
+})();
+
+// QR URL parser (core — needed before lazy modules load)
 window.qrGetCemaFromUrl = function(){
   try{
     var u = new URL(window.location.href);
@@ -85,225 +115,160 @@ window.qrGetCemaFromUrl = function(){
 };
 
 // ═══════════════════════════════════════════════════════════
-//  CARGA DE MÓDULOS LOCALES — import() dinámico
-//  Cada módulo tiene SU PROPIO SCOPE (no hay colisiones)
+//  HERO CAROUSEL — Frases motivadoras + indicadores
 // ═══════════════════════════════════════════════════════════
-
-const MODULOS_CORE = [
-  'auth.js', 'accounts.js', 'equipment.js', 'home.js',
-  'inspections-preop.js', 'inspections-engine.js',
-  'inspections-bimensuales.js', 'inspections-locativas.js',
-  'menus.js', 'damage.js', 'maintenance.js'
-];
-
-async function cargarModulo(src) {
-  try {
-    await import('./' + src);
-    console.log('[MOVA] OK:', src);
-    return true;
-  } catch(e) {
-    console.error('[MOVA] ERROR:', src, e.message);
-    return false;
+window._initHeroCarousel = function(){
+  var slides = document.querySelectorAll('.hero-right-slide');
+  var dots = document.getElementById('heroDots');
+  if(!slides.length) return;
+  // Crear dots si no existen
+  if(dots && dots.children.length === 0){
+    slides.forEach(function(s, i){
+      var d = document.createElement('span');
+      d.className = 'hero-dot' + (i === 0 ? ' active' : '');
+      d.onclick = function(){ goToSlide(i); };
+      dots.appendChild(d);
+    });
   }
-}
-
-(async function init() {
-  // Cargar secuencialmente para mantener orden
-  for (const mod of MODULOS_CORE) {
-    await cargarModulo(mod);
+  var current = 0;
+  function goToSlide(idx){
+    slides[current].classList.remove('active');
+    slides[idx].classList.add('active');
+    current = idx;
+    // Actualizar dots
+    var dotEls = dots ? dots.querySelectorAll('.hero-dot') : [];
+    dotEls.forEach(function(d, i){ d.classList.toggle('active', i === idx); });
   }
-  console.log('[MOVA v2] Core cargado');
-  
-  // Inicializar hero e KPIs
-  setTimeout(function(){
-    if(window._initHeroCarousel) window._initHeroCarousel();
-    if(window.loadInicioKPIs) window.loadInicioKPIs();
-  }, 300);
-})();
-
-// ═══════════════════════════════════════════════════════════
-//  CORE UI
-// ═══════════════════════════════════════════════════════════
-
-window.navTo = async function(page) {
-  if (window.rolActivo !== 'admin' && (typeof PAGES_ADMIN !== 'undefined') && PAGES_ADMIN.includes(page)) {
-    showToast('error', 'No tienes permiso'); return;
+  function nextSlide(){
+    var next = (current + 1) % slides.length;
+    goToSlide(next);
   }
-  
-  // Cerrar modales
+  // Auto-rotar cada 5 segundos
+  if(window._heroInterval) clearInterval(window._heroInterval);
+  window._heroInterval = setInterval(nextSlide, 5000);
+};
+
+// Limpiar modal de documentos al navegar
+window._cleanupModals = function(){
   var m = document.getElementById('modal-subir-doc');
   if(m) m.style.display = 'none';
+};
+
+// ═══════════════════════════════════════════════════════════
+//  CORE UI — Navegación, Auth tabs, Dropdowns, Layout
+//  (Extraído del bloque inline del HTML original)
+// ═══════════════════════════════════════════════════════════
+
+window.switchAuthTab = function(tab) {
+  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+  if (tab === 'login') {
+    document.querySelector('.auth-tab:first-child').classList.add('active');
+    document.getElementById('loginForm').classList.add('active');
+  } else {
+    document.querySelector('.auth-tab:last-child').classList.add('active');
+    document.getElementById('registerForm').classList.add('active');
+  }
+};
+
+window.navTo = async function(page) {
+  // Los módulos core ya están precargados, loadPageModule es solo para módulos adicionales
+  if(window._loadedModules && window._pageModules && window._pageModules[page]){
+    try {
+      await Promise.race([
+        window.loadPageModule(page),
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Timeout')); }, 2000); })
+      ]);
+    } catch(e) {
+      console.warn('[navTo] Timeout cargando módulos para '+page);
+    }
+  }
   
+  // Bloqueo de acceso por rol
+  if (window.rolActivo !== 'admin' && (typeof PAGES_ADMIN !== 'undefined') && PAGES_ADMIN.includes(page)) {
+    showToast('error', 'No tienes permiso para acceder a este módulo'); return;
+  }
   document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
   const t = document.getElementById('page-' + page);
   if (t) {
     t.classList.add('active');
     t.querySelectorAll('.fade-in').forEach(el => { el.style.animation = 'none'; el.offsetHeight; el.style.animation = ''; });
+    // Agregar botón "Volver al inicio" en todas las páginas excepto inicio
+    if (page !== 'inicio' && page !== 'preoperacionales' && page !== 'bimensuales' && page !== 'locativas') {
+      let bb = t.querySelector('.auto-back-btn');
+      if (!bb) {
+        bb = document.createElement('a'); bb.className = 'auto-back-btn';
+        bb.innerHTML = '<i class="bi bi-arrow-left"></i> Volver al Inicio';
+        bb.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:8px 16px;margin:16px 0 0 48px;border-radius:8px;border:1px solid var(--gray-200);background:var(--white);color:var(--gray-600);font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;font-family:DM Sans,sans-serif;text-decoration:none';
+        bb.onmouseover = function () { this.style.background = 'var(--gray-50)' };
+        bb.onmouseout = function () { this.style.background = 'var(--white)' };
+        bb.onclick = function () { window.navTo("inicio") };
+        const ph = t.querySelector('.page-header,.preop-container,.falla-container,.hv-container');
+        if (ph) t.insertBefore(bb, ph); else t.prepend(bb);
+      }
+    }
   }
-  
-  // Navegación activa
   document.querySelectorAll('#topNav a').forEach(a => a.classList.remove('active'));
   const tl = document.querySelector('#topNav a[data-page="' + page + '"]');
   if (tl) tl.classList.add('active');
   document.querySelectorAll('.sidebar-item').forEach(s => s.classList.remove('active'));
   const sl = document.querySelector('.sidebar-item[data-page="' + page + '"]');
   if (sl) sl.classList.add('active');
-  
-  // Init por página
-  if (page === 'preoperacionales' && window.initPreopPage) window.initPreopPage();
-  if (page === 'bimensuales' && window.initBimensualPage) window.initBimensualPage();
-  if (page === 'locativas' && window.initLocativaPage) window.initLocativaPage();
   if (page === 'fallas' && window.initFallaPage) window.initFallaPage();
   if (page === 'danos' && window.initDanoPage) window.initDanoPage();
   if (page === 'cuentas' && window.initCuentasPage) window.initCuentasPage();
   if (page === 'tribologia' && window.initTribologiaPage) window.initTribologiaPage();
   if (page === 'planner' && window.initPlannerPage) window.initPlannerPage();
+  if (page === 'preoperacionales') {
+    console.log('[navTo] Preoperacionales - initPreopPage:', typeof window.initPreopPage);
+    if (window.initPreopPage) window.initPreopPage();
+    else showToast('error','Módulo de preoperacionales no cargado. Recarga la página.');
+  }
+  if (page === 'bimensuales') {
+    console.log('[navTo] Bimensuales - initBimensualPage:', typeof window.initBimensualPage);
+    if (window.initBimensualPage) window.initBimensualPage();
+    else showToast('error','Módulo de bimensuales no cargado. Recarga la página.');
+  }
+  if (page === 'locativas') {
+    console.log('[navTo] Locativas - initLocativaPage:', typeof window.initLocativaPage);
+    if (window.initLocativaPage) window.initLocativaPage();
+    else showToast('error','Módulo de locativas no cargado. Recarga la página.');
+  }
   if (page === 'historial' && window.initHistorialPage) window.initHistorialPage();
-  if (page === 'dashboard' && window.initDashboardPage) window.initDashboardPage();
+  if (page === 'dashboard' && window.initDashboardPage) { initProjBars().then(function () { var b = document.getElementById('dash-proj-bar'); if (b && window.rolActivo === 'admin') b.style.display = 'flex'; }); window.initDashboardPage(); }
   if (page === 'hojavida' && window.initHojaVidaPage) window.initHojaVidaPage();
   if (page === 'novedades' && window.initNovedadesPage) window.initNovedadesPage();
   if (page === 'galeria' && window.initGaleriaPage) window.initGaleriaPage();
   if (page === 'qrgen' && window.initQrGenPage) window.initQrGenPage();
   if (page === 'qr-equipo' && window.initQrEquipoPage) window.initQrEquipoPage();
+  if ((page === 'preoperacionales' || page === 'fallas' || page === 'ordenes') && window.qrAutofillCema) window.qrAutofillCema();
+  if (page === 'galeria' && window.initGaleriaPage) window.initGaleriaPage();
+  if (page === 'documentos' && window.initDocumentosPage) window.initDocumentosPage();
   if (page === 'proyectos' && window.initProyectosPage) window.initProyectosPage();
   if (page === 'ordenes' && window.initOrdenesPage) window.initOrdenesPage();
-  if (page === 'hist-mtto' && window.initHistMttoPage) window.initHistMttoPage();
-  if (page === 'ctrl-seg' && window.initCtrlSegPage) window.initCtrlSegPage();
-  if (page === 'equipos' && window.cargarEquipos) window.cargarEquipos('todos');
-  if (page === 'documentos' && window.initDocumentosPage) window.initDocumentosPage();
+  if (page === 'hist-mtto' && window.initHistMttoPage) { initProjBars().then(function () { var b = document.getElementById('hmtto-proj-bar'); if (b && window.rolActivo === 'admin') b.style.display = 'flex'; }); window.initHistMttoPage(); }
+  if (page === 'ctrl-seg' && window.initCtrlSegPage) { initProjBars().then(function () { var b = document.getElementById('cseg-proj-bar'); if (b && window.rolActivo === 'admin') b.style.display = 'flex'; }); window.initCtrlSegPage(); }
+  if (page === 'equipos' && window.cargarEquipos) window.cargarEquipos(document.querySelector('.project-btn.active')?.dataset.project || 'todos');
+  // Limpiar modales al navegar
+  if (window._cleanupModals) window._cleanupModals();
+
   if (page === 'inicio') {
     if (window._initHeroCarousel) window._initHeroCarousel();
     setTimeout(() => { document.querySelectorAll('.progress-fill').forEach(b => { b.style.width = '0'; setTimeout(() => { b.style.width = b.dataset.target + '%' }, 100) }) }, 300);
     if (window.loadInicioKPIs) window.loadInicioKPIs();
     setTimeout(window.inicioCarouselInit, 600);
     if (window.initNovCarousel) setTimeout(window.initNovCarousel, 500);
+    if (typeof inicioGaleriaCargar !== 'undefined') inicioGaleriaCargar();
+    if (window.cargarInicioProxMtto) window.cargarInicioProxMtto();
+    if (window.cargarInicioActividad) window.cargarInicioActividad();
   }
-  
   window.scrollTo({ top: 0, behavior: 'smooth' });
   document.getElementById('sidebar')?.classList.remove('mobile-open');
   document.getElementById('sidebarOverlay')?.classList.remove('show');
 };
 
-// Mobile menu
-document.addEventListener('DOMContentLoaded', function() {
-  var menuToggle = document.getElementById('menuToggle');
-  var sidebar = document.getElementById('sidebar');
-  var overlay = document.getElementById('sidebarOverlay');
-  if(menuToggle && sidebar) {
-    menuToggle.addEventListener('click', function() {
-      sidebar.classList.toggle('mobile-open');
-      if(overlay) overlay.classList.toggle('show');
-    });
-  }
-  if(overlay && sidebar) {
-    overlay.addEventListener('click', function() {
-      sidebar.classList.remove('mobile-open');
-      overlay.classList.remove('show');
-    });
-  }
-  // Progress bars
-  var p = document.getElementById('progressBars');
-  if(p) {
-    [{l:'Mtto. Preventivo',v:87,c:'green'},{l:'Mtto. Instalaciones',v:72,c:'yellow'},{l:'Inspecciones',v:95,c:'green'},{l:'OT Cerradas',v:63,c:'red'}].forEach(function(x){
-      p.innerHTML += '<div class="progress-item"><div class="progress-header"><span class="progress-label">'+x.l+'</span><span class="progress-value">'+x.v+'%</span></div><div class="progress-bar"><div class="progress-fill '+x.c+'" data-target="'+x.v+'" style="width:0"></div></div></div>';
-    });
-    setTimeout(() => { document.querySelectorAll('.progress-fill').forEach(b => { b.style.width = b.dataset.target + '%' }) }, 600);
-  }
-  // Project buttons
-  document.querySelectorAll('.project-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.project-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      if(window.cargarEquipos) window.cargarEquipos(btn.dataset.project);
-    });
-  });
-});
-
-// ═══════════════════════════════════════════════════════════
-//  MOTOR PDF UNIFICADO
-// ═══════════════════════════════════════════════════════════
-
-window._pdfEngine = {
-  init: function(opts) {
-    var o = Object.assign({ orientation: 'portrait', margin: 14, fontSize: 10, title: '', subtitle: '', footer: '' }, opts || {});
-    var { jsPDF } = window.jspdf;
-    var pdf = new jsPDF({ orientation: o.orientation, unit: 'mm', format: 'a4' });
-    pdf.setFont('helvetica');
-    pdf.setFontSize(o.fontSize);
-    var pw = o.orientation === 'l' ? 297 : 210;
-    pdf.setFillColor(15, 33, 55);
-    pdf.rect(0, 0, pw, 14, 'F');
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(11);
-    pdf.text(o.title || 'MM&E MOVA', 8, 9.5);
-    pdf.setFontSize(8);
-    pdf.text(o.subtitle || '', pw - 8, 9.5, { align: 'right' });
-    pdf.setTextColor(0, 0, 0);
-    pdf.setFontSize(o.fontSize);
-    return { pdf: pdf, y: 18, pw: pw, ph: o.orientation === 'l' ? 210 : 297, opts: o };
-  },
-  addMeta: function(ctx, items) {
-    var pdf = ctx.pdf;
-    pdf.setFillColor(245, 247, 250);
-    pdf.roundedRect(10, ctx.y, ctx.pw - 20, items.length * 7 + 4, 2, 2, 'F');
-    pdf.setFontSize(9);
-    items.forEach(function(it, i) {
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(it.label + ':', 14, ctx.y + 7 + i * 7);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(String(it.value || '—'), 60, ctx.y + 7 + i * 7);
-    });
-    ctx.y += items.length * 7 + 10;
-    return ctx;
-  },
-  addTable: function(ctx, head, body) {
-    ctx.pdf.autoTable({
-      startY: ctx.y, head: [head], body: body,
-      theme: 'grid', headStyles: { fillColor: [15, 33, 55], textColor: 255, fontSize: 9, fontStyle: 'bold' },
-      bodyStyles: { fontSize: 8 }, alternateRowStyles: { fillColor: [250, 250, 250] },
-      margin: { left: 10, right: 10 }
-    });
-    ctx.y = ctx.pdf.lastAutoTable.finalY + 6;
-    return ctx;
-  },
-  addText: function(ctx, lines) {
-    var pdf = ctx.pdf;
-    pdf.setFontSize(9);
-    lines.forEach(function(ln) {
-      pdf.setFont('helvetica', ln.bold ? 'bold' : 'normal');
-      pdf.text(ln.text, 10, ctx.y);
-      ctx.y += 5;
-    });
-    ctx.y += 2;
-    return ctx;
-  },
-  finalize: function(ctx) {
-    var pdf = ctx.pdf;
-    var tp = pdf.internal.getNumberOfPages();
-    for (var i = 1; i <= tp; i++) {
-      pdf.setPage(i);
-      pdf.setTextColor(150, 150, 150);
-      pdf.setFontSize(7);
-      pdf.text('Página ' + i + ' de ' + tp, ctx.pw / 2, ctx.ph - 2, { align: 'center' });
-    }
-    return pdf;
-  }
-};
-
-// ═══════════════════════════════════════════════════════════
-//  HELPERS
-// ═══════════════════════════════════════════════════════════
-
-window._handleError = function(ctx, e) {
-  console.error('[' + ctx + ']', e);
-  var msg = 'Error inesperado';
-  if (e && e.code) {
-    msg = { 'permission-denied': 'No tienes permiso', 'not-found': 'Documento no encontrado', 'already-exists': 'El documento ya existe', 'unauthenticated': 'Sesión expirada. Ingresa de nuevo', 'resource-exhausted': 'Cuota excedida. Contacta soporte', 'cancelled': 'Operación cancelada', 'deadline-exceeded': 'Tiempo de espera agotado', 'unavailable': 'Servicio no disponible. Intenta más tarde' }[e.code] || e.message;
-  } else if (e && e.message) { msg = e.message; }
-  showToast('error', msg);
-};
-
-console.log('[MOVA v2] main.js cargado');
+window.toggleDrop = function (id) { event.stopPropagation(); document.getElementById(id).classList.toggle('show') };
+document.addEventListener('click', () => { document.querySelectorAll('.dropdown,.user-menu').forEach(d => d.classList.remove('show')) });
 
 // Sidebar mobile + overlay
 document.getElementById('menuToggle')?.addEventListener('click', () => {
